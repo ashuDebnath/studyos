@@ -25,17 +25,17 @@
  *   ✓  $vectorSearch         — MongoDB Atlas Vector Search aggregation stage
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const mongoose = require('mongoose');
-const Chunk    = require('../models/Chunk');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const mongoose = require("mongoose");
+const Chunk = require("../models/Chunk");
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const CHUNK_SIZE    = 400;               // words per chunk
-const CHUNK_OVERLAP = 60;               // overlapping words between consecutive chunks
-const TOP_K         = 5;               // chunks returned to the LLM
-const EMBED_MODEL   = 'text-embedding-004'; // 768-dim, best free Google embedding
-const ATLAS_INDEX   = 'chunk_vector_index'; // name of your Atlas Vector Search index
-const EMBED_API_DELAY_MS = 120;         // ms between embedding calls (stay < 1 500 req/min)
+const CHUNK_SIZE = 400; // words per chunk
+const CHUNK_OVERLAP = 60; // overlapping words between consecutive chunks
+const TOP_K = 5; // chunks returned to the LLM
+const EMBED_MODEL = "text-embedding-004"; // 768-dim, best free Google embedding
+const ATLAS_INDEX = "chunk_vector_index"; // name of your Atlas Vector Search index
+const EMBED_API_DELAY_MS = 120; // ms between embedding calls (stay < 1 500 req/min)
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -46,7 +46,10 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  * Trims to 8 192 chars so we never exceed the model's token limit.
  */
 async function embedText(text) {
-  const model  = genAI.getGenerativeModel({ model: EMBED_MODEL });
+  const model = genAI.getGenerativeModel(
+    { model: EMBED_MODEL },
+    { apiVersion: "v1" },
+  );
   const result = await model.embedContent(text.slice(0, 8192));
   return result.embedding.values; // number[], length 768
 }
@@ -73,11 +76,11 @@ async function embedChunksSerially(texts) {
  * Overlap ensures sentences that straddle a boundary appear in both chunks.
  */
 function splitIntoChunks(text) {
-  const words  = text.split(/\s+/);
+  const words = text.split(/\s+/);
   const chunks = [];
   let i = 0;
   while (i < words.length) {
-    chunks.push(words.slice(i, i + CHUNK_SIZE).join(' '));
+    chunks.push(words.slice(i, i + CHUNK_SIZE).join(" "));
     i += CHUNK_SIZE - CHUNK_OVERLAP;
   }
   return chunks;
@@ -93,23 +96,23 @@ function splitIntoChunks(text) {
  * @returns {number}     — number of chunks written
  */
 async function indexNote(note) {
-  const content = note.extractedText || note.textContent || '';
+  const content = note.extractedText || note.textContent || "";
   if (!content || content.length < 30) return 0;
 
   // Wipe old chunks so re-indexing is idempotent
   await Chunk.deleteMany({ note: note._id });
 
-  const rawChunks  = splitIntoChunks(content);
+  const rawChunks = splitIntoChunks(content);
   const embeddings = await embedChunksSerially(rawChunks);
 
   const docs = rawChunks.map((text, idx) => ({
-    user:        note.user,
-    note:        note._id,
-    noteTitle:   note.title,
+    user: note.user,
+    note: note._id,
+    noteTitle: note.title,
     noteSubject: note.subject,
-    chunkIndex:  idx,
+    chunkIndex: idx,
     text,
-    embedding:   embeddings[idx],
+    embedding: embeddings[idx],
   }));
 
   await Chunk.insertMany(docs, { ordered: false });
@@ -148,24 +151,24 @@ async function retrieve(userId, query, noteId = null) {
   const pipeline = [
     {
       $vectorSearch: {
-        index:         ATLAS_INDEX,
-        path:          'embedding',       // field holding the 768-dim vectors
-        queryVector,                      // our freshly-embedded query
-        numCandidates: TOP_K * 15,        // wider pool → better recall
-        limit:         TOP_K,             // final number of chunks returned
-        filter,                           // pre-filter by user (+ optional note)
+        index: ATLAS_INDEX,
+        path: "embedding", // field holding the 768-dim vectors
+        queryVector, // our freshly-embedded query
+        numCandidates: TOP_K * 15, // wider pool → better recall
+        limit: TOP_K, // final number of chunks returned
+        filter, // pre-filter by user (+ optional note)
       },
     },
     {
       // Project only what we need; drop the large embedding array
       $project: {
-        _id:         1,
-        text:        1,
-        noteTitle:   1,
+        _id: 1,
+        text: 1,
+        noteTitle: 1,
         noteSubject: 1,
-        chunkIndex:  1,
-        note:        1,
-        score: { $meta: 'vectorSearchScore' }, // cosine similarity (0 – 1)
+        chunkIndex: 1,
+        note: 1,
+        score: { $meta: "vectorSearchScore" }, // cosine similarity (0 – 1)
       },
     },
   ];
@@ -179,15 +182,15 @@ async function retrieve(userId, query, noteId = null) {
  * Assemble retrieved chunks into a single context string for the LLM prompt.
  */
 function buildContext(chunks) {
-  if (!chunks.length) return 'No relevant content found in your notes.';
+  if (!chunks.length) return "No relevant content found in your notes.";
   return chunks
     .map(
       (c, i) =>
         `[Source ${i + 1}: "${c.noteTitle}" – ${c.noteSubject} | similarity: ${
-          c.score != null ? c.score.toFixed(3) : 'n/a'
-        }]\n${c.text}`
+          c.score != null ? c.score.toFixed(3) : "n/a"
+        }]\n${c.text}`,
     )
-    .join('\n\n---\n\n');
+    .join("\n\n---\n\n");
 }
 
 module.exports = { indexNote, retrieve, buildContext };

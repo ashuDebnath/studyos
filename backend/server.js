@@ -18,6 +18,7 @@ require("./models/ChatSession");
 
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 const app = express();
+app.set("trust proxy", 1);
 
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet());

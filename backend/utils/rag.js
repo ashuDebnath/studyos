@@ -33,7 +33,7 @@ const Chunk = require("../models/Chunk");
 const CHUNK_SIZE = 400; // words per chunk
 const CHUNK_OVERLAP = 60; // overlapping words between consecutive chunks
 const TOP_K = 5; // chunks returned to the LLM
-const EMBED_MODEL = "text-embedding-004"; // 768-dim, best free Google embedding
+const EMBED_MODEL = "gemini-embedding-001"; // 768-dim, best free Google embedding
 const ATLAS_INDEX = "chunk_vector_index"; // name of your Atlas Vector Search index
 const EMBED_API_DELAY_MS = 120; // ms between embedding calls (stay < 1 500 req/min)
 
@@ -50,7 +50,10 @@ async function embedText(text) {
     { model: EMBED_MODEL },
     { apiVersion: "v1" },
   );
-  const result = await model.embedContent(text.slice(0, 8192));
+  const result = await model.embedContent({
+    content: { parts: [{ text: text.slice(0, 8192) }] },
+    outputDimensionality: 768, // keeps same dims as old model → Atlas index unchanged
+  });
   return result.embedding.values; // number[], length 768
 }
 
